@@ -29,10 +29,10 @@ func main() {
 
 	response, err := client.SystemOne(context.Background(), "Help! My payouts have failed for three days.", jev.Questions{
 		"urgent": jev.Noul("Does this message express urgency?"),
-		"department": jev.Choice("Which team should handle this?", map[string]string{
+		"department": jev.Choice("Which team should handle this?", jev.StringCriteria(map[string]string{
 			"billing":   "Payments, invoices, and refunds",
 			"technical": "Bugs, outages, and integrations",
-		}),
+		})),
 		"frustration": jev.Score("How frustrated is the customer?", "calm", "frustrated", "very angry"),
 	})
 	if err != nil {

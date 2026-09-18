@@ -45,7 +45,7 @@ func TestSystemOne(t *testing.T) {
 	}
 	response, err := client.SystemOne(context.Background(), "help ASAP", Questions{
 		"urgent":      Noul("Is this urgent?"),
-		"department":  Choice("Which team?", map[string]string{"billing": "payments", "technical": "bugs"}),
+		"department":  Choice("Which team?", StringCriteria(map[string]string{"billing": "payments", "technical": "bugs"})),
 		"frustration": Score("How frustrated?", "calm", "frustrated", "angry"),
 	})
 	if err != nil {
@@ -107,6 +107,89 @@ func TestRejectsInvalidQuestion(t *testing.T) {
 	}
 	_, err = client.SystemOne(context.Background(), "state", Questions{"score": Score("Rate it", "only one")})
 	if err == nil || !strings.Contains(err.Error(), "between two and ten") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestQuestionAndResponseValidation(t *testing.T) {
+	if err := validateRequest(Request{
+		State: 42,
+		Questions: Questions{
+			"ok": Noul("Is this okay?"),
+		},
+	}); err == nil {
+		t.Fatal("numeric state should be rejected")
+	}
+
+	choice := Choice("Which?", ChoiceCriteria{"billing": nil, "technical": nil})
+	encoded, err := json.Marshal(choice)
+	if err != nil || !strings.Contains(string(encoded), `"billing":null`) {
+		t.Fatalf("choice JSON = %s, error = %v", encoded, err)
+	}
+
+	var missingNoul Response
+	if err := json.Unmarshal([]byte(`{"model":"jev-latest","answers":{"ok":{"type":"noul"}}}`), &missingNoul); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateResponse(missingNoul, Questions{"ok": Noul("Is this okay?")}); err == nil {
+		t.Fatal("missing noul should be rejected")
+	}
+
+	var missingChoiceProbabilities Response
+	if err := json.Unmarshal([]byte(`{"model":"jev-latest","answers":{"kind":{"type":"choice","choice":"billing","confidence":0.9}}}`), &missingChoiceProbabilities); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateResponse(missingChoiceProbabilities, Questions{
+		"kind": Choice("Which?", ChoiceCriteria{"billing": nil, "technical": nil}),
+	}); err == nil {
+		t.Fatal("missing choice probabilities should be rejected")
+	}
+
+	var missingScoreFields Response
+	if err := json.Unmarshal([]byte(`{"model":"jev-latest","answers":{"severity":{"type":"score","score":1,"confidence":0.9}}}`), &missingScoreFields); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateResponse(missingScoreFields, Questions{
+		"severity": Score("How severe?", "low", "high"),
+	}); err == nil {
+		t.Fatal("missing score fields should be rejected")
+	}
+}
+
+func TestRejectsEmptyInstructions(t *testing.T) {
+	for name, question := range Questions{
+		"noul":   Noul(" "),
+		"choice": Choice("", ChoiceCriteria{"yes": nil, "no": nil}),
+		"score":  Score("\t", "low", "high"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateRequest(Request{State: "state", Questions: Questions{name: question}})
+			if err == nil || !strings.Contains(err.Error(), "instructions must not be empty") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRejectsMissingChoiceConfidence(t *testing.T) {
+	var response Response
+	if err := json.Unmarshal([]byte(`{
+		"model":"jev-latest",
+		"answers":{
+			"department":{
+				"type":"choice",
+				"choice":"technical",
+				"probabilities":{"technical":0.9,"billing":0.1}
+			}
+		}
+	}`), &response); err != nil {
+		t.Fatal(err)
+	}
+
+	err := validateResponse(response, Questions{
+		"department": Choice("Which team?", ChoiceCriteria{"billing": nil, "technical": nil}),
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing confidence") {
 		t.Fatalf("error = %v", err)
 	}
 }
