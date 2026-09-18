@@ -157,11 +157,11 @@ func TestQuestionAndResponseValidation(t *testing.T) {
 }
 
 func TestRejectsEmptyInstructions(t *testing.T) {
-	for name, question := range Questions{
+	for name, question := range (Questions{
 		"noul":   Noul(" "),
 		"choice": Choice("", ChoiceCriteria{"yes": nil, "no": nil}),
 		"score":  Score("\t", "low", "high"),
-	} {
+	}) {
 		t.Run(name, func(t *testing.T) {
 			err := validateRequest(Request{State: "state", Questions: Questions{name: question}})
 			if err == nil || !strings.Contains(err.Error(), "instructions must not be empty") {
