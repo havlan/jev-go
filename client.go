@@ -86,7 +86,7 @@ func (c *Client) Evaluate(ctx context.Context, request Request) (*Response, erro
 	}
 
 	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
-		response, retryAfter, err := c.do(ctx, payload, request.Questions)
+		response, retryAfter, err := c.do(ctx, payload)
 		if err == nil {
 			return response, nil
 		}
@@ -101,7 +101,7 @@ func (c *Client) Evaluate(ctx context.Context, request Request) (*Response, erro
 	panic("unreachable")
 }
 
-func (c *Client) do(ctx context.Context, payload []byte, questions Questions) (*Response, time.Duration, error) {
+func (c *Client) do(ctx context.Context, payload []byte) (*Response, time.Duration, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, fmt.Errorf("create Jev request: %w", err)
@@ -131,9 +131,6 @@ func (c *Client) do(ctx context.Context, payload []byte, questions Questions) (*
 	var response Response
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, 0, fmt.Errorf("decode Jev response: %w", err)
-	}
-	if err := validateResponse(response, questions); err != nil {
-		return nil, 0, err
 	}
 	return &response, 0, nil
 }

@@ -127,33 +127,6 @@ func TestQuestionAndResponseValidation(t *testing.T) {
 		t.Fatalf("choice JSON = %s, error = %v", encoded, err)
 	}
 
-	var missingNoul Response
-	if err := json.Unmarshal([]byte(`{"model":"jev-latest","answers":{"ok":{"type":"noul"}}}`), &missingNoul); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateResponse(missingNoul, Questions{"ok": Noul("Is this okay?")}); err == nil {
-		t.Fatal("missing noul should be rejected")
-	}
-
-	var missingChoiceProbabilities Response
-	if err := json.Unmarshal([]byte(`{"model":"jev-latest","answers":{"kind":{"type":"choice","choice":"billing","confidence":0.9}}}`), &missingChoiceProbabilities); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateResponse(missingChoiceProbabilities, Questions{
-		"kind": Choice("Which?", ChoiceCriteria{"billing": nil, "technical": nil}),
-	}); err == nil {
-		t.Fatal("missing choice probabilities should be rejected")
-	}
-
-	var missingScoreFields Response
-	if err := json.Unmarshal([]byte(`{"model":"jev-latest","answers":{"severity":{"type":"score","score":1,"confidence":0.9}}}`), &missingScoreFields); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateResponse(missingScoreFields, Questions{
-		"severity": Score("How severe?", "low", "high"),
-	}); err == nil {
-		t.Fatal("missing score fields should be rejected")
-	}
 }
 
 func TestRejectsEmptyInstructions(t *testing.T) {
@@ -168,28 +141,5 @@ func TestRejectsEmptyInstructions(t *testing.T) {
 				t.Fatalf("error = %v", err)
 			}
 		})
-	}
-}
-
-func TestRejectsMissingChoiceConfidence(t *testing.T) {
-	var response Response
-	if err := json.Unmarshal([]byte(`{
-		"model":"jev-latest",
-		"answers":{
-			"department":{
-				"type":"choice",
-				"choice":"technical",
-				"probabilities":{"technical":0.9,"billing":0.1}
-			}
-		}
-	}`), &response); err != nil {
-		t.Fatal(err)
-	}
-
-	err := validateResponse(response, Questions{
-		"department": Choice("Which team?", ChoiceCriteria{"billing": nil, "technical": nil}),
-	})
-	if err == nil || !strings.Contains(err.Error(), "missing confidence") {
-		t.Fatalf("error = %v", err)
 	}
 }

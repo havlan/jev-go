@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 )
 
@@ -162,50 +161,6 @@ type Answer struct {
 	Legend        map[string]string  `json:"legend,omitempty"`
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
 	Confidence    float64            `json:"confidence,omitempty"`
-
-	hasNoul          bool
-	hasChoice        bool
-	hasScore         bool
-	hasLegend        bool
-	hasProbabilities bool
-	hasConfidence    bool
-}
-
-func (a *Answer) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		Type          QuestionType       `json:"type"`
-		Noul          *float64           `json:"noul"`
-		Choice        *string            `json:"choice"`
-		Score         *float64           `json:"score"`
-		Legend        map[string]string  `json:"legend"`
-		Probabilities map[string]float64 `json:"probabilities"`
-		Confidence    *float64           `json:"confidence"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	a.Type = raw.Type
-	a.Legend = raw.Legend
-	a.Probabilities = raw.Probabilities
-	a.hasNoul = raw.Noul != nil
-	a.hasChoice = raw.Choice != nil
-	a.hasScore = raw.Score != nil
-	a.hasLegend = raw.Legend != nil
-	a.hasProbabilities = raw.Probabilities != nil
-	a.hasConfidence = raw.Confidence != nil
-	if raw.Noul != nil {
-		a.Noul = *raw.Noul
-	}
-	if raw.Choice != nil {
-		a.Choice = *raw.Choice
-	}
-	if raw.Score != nil {
-		a.Score = *raw.Score
-	}
-	if raw.Confidence != nil {
-		a.Confidence = *raw.Confidence
-	}
-	return nil
 }
 
 type Usage struct {
@@ -251,153 +206,8 @@ func validateRequest(request Request) error {
 	return nil
 }
 
-func validateResponse(response Response, questions Questions) error {
-	if response.Model == "" {
-		return errors.New("Jev response is missing model")
-	}
-	for id, question := range questions {
-		answer, ok := response.Answers[id]
-		if !ok {
-			return fmt.Errorf("Jev response is missing answer %q", id)
-		}
-		if answer.Type != question.questionType() {
-			return fmt.Errorf("answer %q has type %q, want %q", id, answer.Type, question.questionType())
-		}
-	}
-	for id, question := range questions {
-		if err := validateAnswer(id, response.Answers[id], question); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateAnswer(id string, answer Answer, question Question) error {
-	switch answer.Type {
-	case QuestionNoul:
-		if !answer.hasNoul {
-			return fmt.Errorf("answer %q is missing noul", id)
-		}
-		if answer.Noul < 0 || answer.Noul > 1 {
-			return fmt.Errorf("answer %q has invalid noul value %v", id, answer.Noul)
-		}
-		return nil
-	case QuestionChoice:
-		choice, ok := question.(choiceQuestion)
-		if !ok {
-			return fmt.Errorf("answer %q has invalid choice question", id)
-		}
-		if !answer.hasChoice || answer.Choice == "" {
-			return fmt.Errorf("answer %q has an empty choice", id)
-		}
-		if _, ok := choice.Criteria[answer.Choice]; !ok {
-			return fmt.Errorf("answer %q chose unknown criterion %q", id, answer.Choice)
-		}
-		if !answer.hasProbabilities {
-			return fmt.Errorf("answer %q is missing probabilities", id)
-		}
-		if err := validateProbabilities(id, answer.Probabilities); err != nil {
-			return err
-		}
-		if err := validateProbabilityKeys(id, answer.Probabilities, choice.Criteria); err != nil {
-			return err
-		}
-		if !answer.hasConfidence {
-			return fmt.Errorf("answer %q is missing confidence", id)
-		}
-		return validateConfidence(id, answer.Confidence)
-	case QuestionScore:
-		if !answer.hasScore {
-			return fmt.Errorf("answer %q is missing score", id)
-		}
-		if !answer.hasLegend {
-			return fmt.Errorf("answer %q is missing legend", id)
-		}
-		if !answer.hasProbabilities {
-			return fmt.Errorf("answer %q is missing probabilities", id)
-		}
-		if len(answer.Legend) < 2 || answer.Score < 0 || answer.Score > float64(len(answer.Legend)-1) {
-			return fmt.Errorf("answer %q has invalid score %v", id, answer.Score)
-		}
-		if err := validateProbabilities(id, answer.Probabilities); err != nil {
-			return err
-		}
-		if err := validateScoreKeys(id, answer.Legend, answer.Probabilities); err != nil {
-			return err
-		}
-		if !answer.hasConfidence {
-			return fmt.Errorf("answer %q is missing confidence", id)
-		}
-		return validateConfidence(id, answer.Confidence)
-	default:
-		return fmt.Errorf("answer %q has unknown type %q", id, answer.Type)
-	}
-}
-
-func validateProbabilities(id string, probabilities map[string]float64) error {
-	if len(probabilities) == 0 {
-		return fmt.Errorf("answer %q has empty probabilities", id)
-	}
-	var total float64
-	for option, probability := range probabilities {
-		if probability < 0 || probability > 1 {
-			return fmt.Errorf("answer %q has invalid probability for %q: %v", id, option, probability)
-		}
-		total += probability
-	}
-	if total < 0.999 || total > 1.001 {
-		return fmt.Errorf("answer %q probabilities sum to %v, want 1", id, total)
-	}
-	return nil
-}
-
-func validateProbabilityKeys(id string, probabilities map[string]float64, criteria ChoiceCriteria) error {
-	if len(probabilities) != len(criteria) {
-		return fmt.Errorf("answer %q probabilities do not match choice criteria", id)
-	}
-	for option := range criteria {
-		if _, ok := probabilities[option]; !ok {
-			return fmt.Errorf("answer %q probabilities are missing criterion %q", id, option)
-		}
-	}
-	return nil
-}
-
-func validateScoreKeys(id string, legend map[string]string, probabilities map[string]float64) error {
-	if len(legend) != len(probabilities) {
-		return fmt.Errorf("answer %q legend and probabilities do not match", id)
-	}
-	for level := range legend {
-		if _, ok := probabilities[level]; !ok {
-			return fmt.Errorf("answer %q probabilities are missing score level %q", id, level)
-		}
-	}
-	for level := 0; level < len(legend); level++ {
-		key := fmt.Sprint(level)
-		if _, ok := legend[key]; !ok {
-			return fmt.Errorf("answer %q legend is missing score level %q", id, key)
-		}
-	}
-	return nil
-}
-
-func validateConfidence(id string, confidence float64) error {
-	if confidence < 0 || confidence > 1 {
-		return fmt.Errorf("answer %q has invalid confidence %v", id, confidence)
-	}
-	return nil
-}
-
-func isNil(value any) bool {
-	if value == nil {
-		return true
-	}
-	kind := reflect.ValueOf(value).Kind()
-	return (kind == reflect.Chan || kind == reflect.Func || kind == reflect.Interface || kind == reflect.Map || kind == reflect.Pointer || kind == reflect.Slice) && reflect.ValueOf(value).IsNil()
-}
-
 func validateJSONValue(value any, name string) error {
-	if isNil(value) {
+	if value == nil {
 		return fmt.Errorf("%s must not be nil", name)
 	}
 	encoded, err := json.Marshal(value)
